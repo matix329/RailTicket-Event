@@ -1,0 +1,135 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: railgraph-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: railgraph-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_INTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092,PLAINTEXT_INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      socket.send.buffer.bytes: 1048576
+      num.network.threads: 2
+    ports:
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: railgraph-postgres
+    environment:
+      POSTGRES_DB: railgraph
+      POSTGRES_USER: railgraph
+      POSTGRES_PASSWORD: railgraph123
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: railgraph-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@railgraph.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "8082:80"
+    depends_on:
+      - postgres
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  flink-jobmanager:
+    image: flink:1.17.1-scala_2.12
+    container_name: railgraph-flink-jobmanager
+    command: jobmanager
+    volumes:
+      - ./flink-jobs/target/flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar:/opt/flink/usrlib/flink-jobs.jar
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+    ports:
+      - "8081:8081"
+    networks:
+      - railgraph-network
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  flink-taskmanager:
+    image: flink:1.17.1-scala_2.12
+    container_name: railgraph-flink-taskmanager
+    command: taskmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - taskmanager.network.memory.max=1024mb
+      - taskmanager.network.request-backoff.max=5000
+      - taskmanager.memory.process.size=2048m
+      - taskmanager.numberOfTaskSlots=2
+    depends_on:
+      - flink-jobmanager
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: railgraph-kafka-ui
+    ports:
+      - "8083:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: railgraph-backend
+    ports:
+      - "8085:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/railgraph
+      - SPRING_DATASOURCE_USERNAME=railgraph
+      - SPRING_DATASOURCE_PASSWORD=railgraph123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  railgraph-network:
+    driver: bridge
