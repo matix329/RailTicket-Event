@@ -1,0 +1,363 @@
+{
+  "dashboard": {
+    "title": "RailGraph - Scaling & Performance",
+    "uid": "railgraph-scaling",
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Kafka Partitions - Message Distribution",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(kafka_topic_partition_current_offset{topic=\"ticket-events\"}[5m])",
+            "legendFormat": "Partition {{partition}} - {{topic}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Messages/sec per partition"
+          }
+        ],
+        "description": "Shows message distribution across 3 Kafka partitions. Balanced distribution indicates good partitioning strategy."
+      },
+      {
+        "id": 2,
+        "title": "Kafka Consumer Lag by Partition",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "kafka_consumergroup_lag{topic=\"ticket-events\"}",
+            "legendFormat": "Partition {{partition}} - {{consumergroup}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Lag (messages)"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [1000],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ]
+        },
+        "description": "Consumer lag per partition. Alert fires when lag > 1000 messages."
+      },
+      {
+        "id": 3,
+        "title": "Flink Parallelism - Task Distribution",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "flink_taskmanager_job_task_numRecordsInPerSecond",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "auto",
+          "textMode": "value_and_name",
+          "colorMode": "background"
+        },
+        "description": "Number of active Flink tasks processing data in parallel"
+      },
+      {
+        "id": 4,
+        "title": "Flink TaskManager Slots",
+        "type": "stat",
+        "gridPos": {
+          "x": 6,
+          "y": 8,
+          "w": 6,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "flink_taskmanager_Status_JVM_CPU_Load",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "auto",
+          "textMode": "value",
+          "colorMode": "value",
+          "graphMode": "area"
+        },
+        "description": "TaskManager has 4 slots to support parallelism of 4"
+      },
+      {
+        "id": 5,
+        "title": "Flink - Records Processed per Task",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(flink_taskmanager_job_task_operator_numRecordsIn[5m])",
+            "legendFormat": "{{task_name}} - {{operator_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Records/sec per task"
+          }
+        ],
+        "description": "Shows parallel processing across Flink tasks. With parallelism=4, you should see 4 tasks processing data."
+      },
+      {
+        "id": 6,
+        "title": "Flink Backpressure by Task",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "flink_taskmanager_job_task_backPressuredTimeMsPerSecond",
+            "legendFormat": "{{task_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ms",
+            "label": "Backpressure Time (ms/s)"
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 500,
+            "colorMode": "critical"
+          }
+        ],
+        "description": "Backpressure indicates tasks can't keep up with input. Alert fires when > 500ms/s."
+      },
+      {
+        "id": 7,
+        "title": "Flink Checkpoint Duration",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "flink_jobmanager_job_lastCheckpointDuration",
+            "legendFormat": "{{job_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ms",
+            "label": "Checkpoint Duration"
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 60000,
+            "colorMode": "warning"
+          },
+          {
+            "value": 120000,
+            "colorMode": "critical"
+          }
+        ],
+        "description": "Checkpoint duration indicates state size. Warning > 60s, Critical > 120s."
+      },
+      {
+        "id": 8,
+        "title": "Active Alerts",
+        "type": "table",
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 24,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "alertname": "Alert Name",
+                "severity": "Severity",
+                "component": "Component",
+                "alertstate": "State"
+              }
+            }
+          }
+        ],
+        "description": "Currently firing alerts from Prometheus alerting rules"
+      },
+      {
+        "id": 9,
+        "title": "Throughput Comparison (3 partitions vs 1 partition)",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 32,
+          "w": 24,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"ticket-events\"}[5m]))",
+            "legendFormat": "Total Throughput (all 3 partitions)",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(flink_taskmanager_job_task_operator_numRecordsOut[5m]))",
+            "legendFormat": "Flink Output (parallelism 4)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Messages/sec"
+          }
+        ],
+        "description": "Total system throughput. With 3 partitions and parallelism 4, we can process 3-4x more than single partition/task."
+      },
+      {
+        "id": 10,
+        "title": "Scaling Metrics Summary",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 40,
+          "w": 24,
+          "h": 4
+        },
+        "targets": [
+          {
+            "expr": "3",
+            "refId": "A"
+          },
+          {
+            "expr": "4",
+            "refId": "B"
+          },
+          {
+            "expr": "4",
+            "refId": "C"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "textMode": "value_and_name",
+          "colorMode": "background",
+          "graphMode": "none"
+        },
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "A"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Kafka Partitions"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "B"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Flink Parallelism"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "C"
+              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "TaskManager Slots"
+                }
+              ]
+            }
+          ]
+        },
+        "description": "Scaling configuration: 3 Kafka partitions, Flink parallelism 4, TaskManager slots 4"
+      }
+    ]
+  },
+  "overwrite": true
+}

@@ -17,8 +17,11 @@ A comprehensive Spring Boot service for managing railway stations, routes, and t
   - Routes
   - Tickets
   - Transactions
+  - Analytics
+  - Maintenance
   - Health
 - Real-time Analytics (Kafka + Flink)
+- Monitoring & Observability
 - Data Model
 - Project Structure
 - Development Notes
@@ -39,8 +42,10 @@ This service exposes REST APIs to:
 - Validate ticket existence
 - Manage transaction history and user purchases
 - **Real-time analytics**: Every ticket purchase and transaction generates Kafka events for live analytics
+- **Advanced analytics**: Query aggregated metrics from Flink streaming jobs (route analytics, top routes by sales/revenue)
+- **Route maintenance**: Reset seats and adjust capacity for operational management
 
-Use cases include bootstrapping a route graph, finding optimal routes between stations with different priorities, managing train capacity, selling tickets with seat reservations, and tracking purchase history through transactions.
+Use cases include bootstrapping a route graph, finding optimal routes between stations with different priorities, managing train capacity, selling tickets with seat reservations, tracking purchase history through transactions, and analyzing route performance with real-time metrics.
 
 ## Architecture
 - Monorepo with `backend` and `flink-jobs` modules
@@ -59,6 +64,8 @@ Use cases include bootstrapping a route graph, finding optimal routes between st
 - H2 (local), PostgreSQL 15 (docker/dev)
 - Apache Kafka 7.4.0 for event streaming
 - Apache Flink 1.17.1 for real-time analytics
+- Prometheus + Grafana for monitoring and metrics
+- Alertmanager for alert management
 - Maven, Docker, Docker Compose
 
 ---
@@ -490,6 +497,122 @@ Replace `<BASE_URL>` with your chosen base URL.
   - GET `<BASE_URL>/transactions/user/{userId}`
   - Response 200: `TransactionOutputDTO[]`
 
+### Analytics
+
+Query aggregated metrics from Flink streaming jobs that process ticket and transaction events in real-time.
+
+- Get route analytics
+  - GET `<BASE_URL>/analytics/routes/{routeId}?lastHours={hours}`
+  - Query Parameters:
+    - `lastHours` (optional): Number of hours to look back (default: 24)
+  - Response 200:
+```json
+[
+  {
+    "id": 1,
+    "routeId": 10,
+    "windowStart": "2024-01-15T10:00:00",
+    "windowEnd": "2024-01-15T10:05:00",
+    "ticketsSold": 15,
+    "totalRevenue": 187.50,
+    "averagePrice": 12.50,
+    "createdAt": "2024-01-15T10:05:01"
+  }
+]
+```
+
+- Get all analytics
+  - GET `<BASE_URL>/analytics/routes?lastHours={hours}`
+  - Query Parameters:
+    - `lastHours` (optional): Number of hours to look back (default: 24)
+  - Response 200: `RouteAnalyticsOutputDTO[]` (all routes)
+
+- Get top routes by sales
+  - GET `<BASE_URL>/analytics/top-routes/sales?topN={n}&lastHours={hours}`
+  - Query Parameters:
+    - `topN` (optional): Number of top routes to return (default: 5)
+    - `lastHours` (optional): Number of hours to look back (default: 24)
+  - Response 200:
+```json
+[
+  {
+    "rank": 1,
+    "routeId": 10,
+    "routeName": "Köln Hauptbahnhof → Düsseldorf Hauptbahnhof",
+    "ticketsSold": 150,
+    "totalRevenue": 1875.00
+  }
+]
+```
+
+- Get top routes by revenue
+  - GET `<BASE_URL>/analytics/top-routes/revenue?topN={n}&lastHours={hours}`
+  - Query Parameters:
+    - `topN` (optional): Number of top routes to return (default: 5)
+    - `lastHours` (optional): Number of hours to look back (default: 24)
+  - Response 200: `TopRouteDTO[]`
+
+- Get route summary
+  - GET `<BASE_URL>/analytics/routes/{routeId}/summary?lastHours={hours}`
+  - Query Parameters:
+    - `lastHours` (optional): Number of hours to look back (default: 24)
+  - Response 200:
+```json
+{
+  "routeId": 10,
+  "routeName": "Köln Hauptbahnhof → Düsseldorf Hauptbahnhof",
+  "periodHours": 24,
+  "totalTicketsSold": 150,
+  "totalRevenue": 1875.0,
+  "since": "2024-01-14T10:00:00"
+}
+```
+
+### Maintenance
+
+Operational endpoints for route capacity management.
+
+- Reset all route seats to full capacity
+  - POST `<BASE_URL>/maintenance/reset-seats`
+  - Response 200:
+```json
+{
+  "updated_routes": 50,
+  "total_routes": 50,
+  "total_capacity": 5000,
+  "total_available": 5000
+}
+```
+
+- Increase route capacity
+  - POST `<BASE_URL>/maintenance/increase-capacity?multiplier={n}`
+  - Query Parameters:
+    - `multiplier` (optional): Capacity multiplier between 1 and 100 (default: 10)
+  - Response 200:
+```json
+{
+  "updated_routes": 50,
+  "multiplier": 10,
+  "min_capacity": 1000,
+  "max_capacity": 1500,
+  "total_capacity": 50000
+}
+```
+
+- Get capacity statistics
+  - GET `<BASE_URL>/maintenance/capacity-stats`
+  - Response 200:
+```json
+{
+  "total_routes": 50,
+  "total_capacity": 5000,
+  "total_available": 4200,
+  "total_sold": 800,
+  "average_availability_percent": 84.0,
+  "routes_below_20_percent": 3
+}
+```
+
 ### Health
 - GET `<BASE_URL>/actuator/health`
 
@@ -528,18 +651,33 @@ Emitted when a transaction is created:
 }
 ```
 
-### Flink Analytics Job
+### Flink Analytics Jobs
 
-The Flink job (`TicketStreamJob`) processes ticket events in real-time:
+#### AdvancedTicketAnalyticsJob
+Processes ticket events and stores aggregated analytics in PostgreSQL:
 - **Input**: `ticket-events` Kafka topic
-- **Processing**: Groups by `routeId` and aggregates ticket quantities
+- **Processing**: Groups by `routeId` and aggregates sales metrics
 - **Window**: 5-minute tumbling windows
-- **Output**: Live metrics showing tickets sold per route
+- **Output**: Stores `RouteAnalytics` records in PostgreSQL with:
+  - Tickets sold per route
+  - Total revenue
+  - Average price
+  - Window timestamps
+
+#### TopRoutesAnalyticsJob
+Identifies top-performing routes in real-time:
+- **Input**: `ticket-events` Kafka topic
+- **Processing**: Ranks routes by ticket sales
+- **Window**: 10-minute tumbling windows
+- **Output**: Live leaderboard of top 5 routes
 
 Example output:
 ```
-Route 1 sold 15 tickets in last 5 minutes
-Route 2 sold 8 tickets in last 5 minutes
+========== TOP 5 ROUTES ==========
+  1. Route 10: 150 tickets sold
+  2. Route 5: 120 tickets sold
+  3. Route 3: 95 tickets sold
+====================================
 ```
 
 ### Monitoring
@@ -549,18 +687,88 @@ Route 2 sold 8 tickets in last 5 minutes
 - **Kafka Topics**: `ticket-events`, `transaction-events`
 - **Flink Logs**: `docker logs railgraph-flink-taskmanager -f`
 
-### Testing Real-time Analytics
+---
 
-1. **Start the system** (see Quick Start section)
-2. **Buy some tickets**:
+## Monitoring & Observability
+
+The system includes comprehensive monitoring and alerting using Prometheus, Grafana, and Alertmanager.
+
+### Monitoring Stack
+
+- **Prometheus**: http://localhost:9090 - metrics collection and querying
+- **Grafana**: http://localhost:3000 - visualization dashboards (admin/admin)
+- **Alertmanager**: http://localhost:9093 - alert management and routing
+
+### Metrics Collection
+
+Prometheus scrapes metrics from:
+- **Backend**: Spring Boot Actuator metrics (`/actuator/prometheus`)
+- **Kafka**: Kafka Exporter metrics (topics, partitions, consumer lag)
+- **Flink JobManager**: Job metrics, checkpoints, restarts
+- **Flink TaskManager**: Task metrics, backpressure, records processed
+
+### Grafana Dashboards
+
+Pre-configured dashboards available at http://localhost:3000:
+
+#### RailGraph Overview Dashboard
+- Kafka message rates (ticket/transaction events)
+- Consumer lag monitoring
+- Flink job health (uptime, restarts)
+- Backend API metrics (request rates, error rates)
+- JVM memory usage
+
+#### RailGraph Scaling Dashboard
+- Flink parallelism and task slots
+- Kafka partition distribution
+- Consumer group lag trends
+- Resource utilization metrics
+
+### Alert Rules
+
+The system monitors critical metrics and fires alerts for:
+
+#### Kafka Alerts
+- **KafkaConsumerLagHigh**: Consumer lag > 1000 messages
+- **KafkaConsumerLagCritical**: Consumer lag > 5000 messages
+- **KafkaNoMessagesProduced**: No messages in 10 minutes
+
+#### Flink Alerts
+- **FlinkHighBackpressure**: Task backpressure > 500ms/s
+- **FlinkCheckpointDurationHigh**: Checkpoint duration > 2 minutes
+- **FlinkCheckpointFailed**: Multiple checkpoint failures
+- **FlinkNoRecordsProcessed**: No records processed in 10 minutes
+- **FlinkFrequentRestarts**: Job restarting frequently
+
+#### Backend Alerts
+- **BackendHighErrorRate**: 5xx error rate > 0.1/sec
+- **BackendHighMemoryUsage**: JVM heap usage > 85%
+- **BackendDown**: Backend API not responding
+
+#### System Alerts
+- **ServiceDown**: Any component not responding
+- **SlowScrapeTarget**: Prometheus scrape duration > 5s
+
+### Alert Routing
+
+Alerts are routed to different receivers based on severity and component:
+- **Critical alerts**: Immediate notification (0s wait)
+- **Kafka alerts**: Routed to kafka-team receiver
+- **Flink alerts**: Routed to flink-team receiver
+- **Backend alerts**: Routed to backend-team receiver
+
+### Accessing Metrics
+
+Query Prometheus metrics directly:
 ```bash
-curl -X POST http://localhost:8085/api/tickets?userId=test-user \
-  -H "Content-Type: application/json" \
-  -d '{"routeId":1,"quantity":2,"discountType":"STUDENT"}'
+curl http://localhost:9090/api/v1/query?query=kafka_consumergroup_lag
+
+curl http://localhost:9090/api/v1/query?query=flink_jobmanager_job_uptime
 ```
-3. **Watch Flink logs**:
+
+View active alerts:
 ```bash
-docker logs railgraph-flink-taskmanager -f
+curl http://localhost:9093/api/v2/alerts
 ```
 
 ---
@@ -620,6 +828,30 @@ curl -s "$BASE_URL/transactions/1" | jq .
 
 # get transactions by user
 curl -s "$BASE_URL/transactions/user/user123" | jq .
+
+# get route analytics for route 10 (last 24 hours)
+curl -s "$BASE_URL/analytics/routes/10?lastHours=24" | jq .
+
+# get all analytics (last 12 hours)
+curl -s "$BASE_URL/analytics/routes?lastHours=12" | jq .
+
+# get top 5 routes by sales
+curl -s "$BASE_URL/analytics/top-routes/sales?topN=5&lastHours=24" | jq .
+
+# get top 3 routes by revenue
+curl -s "$BASE_URL/analytics/top-routes/revenue?topN=3&lastHours=24" | jq .
+
+# get route summary for route 10
+curl -s "$BASE_URL/analytics/routes/10/summary?lastHours=24" | jq .
+
+# reset all route seats to full capacity
+curl -s -X POST "$BASE_URL/maintenance/reset-seats" | jq .
+
+# increase capacity by 10x
+curl -s -X POST "$BASE_URL/maintenance/increase-capacity?multiplier=10" | jq .
+
+# get capacity statistics
+curl -s "$BASE_URL/maintenance/capacity-stats" | jq .
 ```
 
 ---
@@ -629,6 +861,7 @@ curl -s "$BASE_URL/transactions/user/user123" | jq .
 - `Route` — id, stationFrom, stationTo, travelTimeMinutes, price, trainCategory, trainNumber, capacity, availableSeats
 - `Ticket` — id, route, basePrice, finalPrice, discountType, quantity
 - `Transaction` — id, ticket, timestamp, userId (links to Ticket)
+- `RouteAnalytics` — id, routeId, windowStart, windowEnd, ticketsSold, totalRevenue, averagePrice, createdAt
 - `DiscountType` — enum: `NONE`, `STUDENT`, `SENIOR`, `GROUP`
 - `TrainCategory` — enum: `IC`, `RE`, `RB`
 
@@ -636,22 +869,33 @@ curl -s "$BASE_URL/transactions/user/user123" | jq .
 - `Route` → `Station` (many-to-one for from/to stations)
 - `Ticket` → `Route` (many-to-one)
 - `Transaction` → `Ticket` (many-to-one)
+- `RouteAnalytics` → `Route` (many-to-one, aggregated from Flink)
 
 ### API Endpoints Summary
 - **Stations**: `/routes/stations` (POST, GET)
 - **Routes**: `/routes` (POST, GET)
-- **Path Finding**: 
+- **Path Finding**:
   - `/routes/path` (GET) - stations only
   - `/routes/path/details` (GET) - shortest path with train information
   - `/routes/path/fastest` (GET) - fastest path with train information
   - `/routes/path/cheapest` (GET) - cheapest path with train information
   - `/routes/path/best-value` (GET) - best value path with train information
-- **Route Search**: 
+- **Route Search**:
   - `/routes/search` (GET) - all routes between stations
   - `/routes/search/available` (GET) - only routes with available seats
 - **Seat Management**: `/routes/{id}/seats/availability` (GET), `/routes/{id}/seats/capacity` (GET), `/routes/{id}/seats/reserve` (POST), `/routes/{id}/seats/release` (POST)
 - **Tickets**: `/tickets` (POST, GET), `/tickets/{id}/validate` (GET)
 - **Transactions**: `/transactions` (POST, GET), `/transactions/{id}` (GET), `/transactions/user/{userId}` (GET)
+- **Analytics**:
+  - `/analytics/routes/{routeId}` (GET) - route analytics by ID
+  - `/analytics/routes` (GET) - all analytics
+  - `/analytics/top-routes/sales` (GET) - top routes by sales
+  - `/analytics/top-routes/revenue` (GET) - top routes by revenue
+  - `/analytics/routes/{routeId}/summary` (GET) - route summary
+- **Maintenance**:
+  - `/maintenance/reset-seats` (POST) - reset all seats to full capacity
+  - `/maintenance/increase-capacity` (POST) - increase route capacity
+  - `/maintenance/capacity-stats` (GET) - capacity statistics
 
 ---
 
@@ -661,19 +905,60 @@ RailTicket-Event/
   backend/                    # Spring Boot API
     src/main/java/com/railgraph/
       controller/             # REST controllers
+        AnalyticsController.java
+        RouteMaintenanceController.java
+        StationController.java
+        TicketController.java
+        TransactionController.java
       service/                # business logic
+        AnalyticsService.java
+        RouteService.java
+        TicketService.java
+        TransactionService.java
       dto/                    # input/output DTOs
+        output/
+          RouteAnalyticsOutputDTO.java
+          TopRouteDTO.java
       model/                  # JPA entities and enums
+        RouteAnalytics.java
+        Station.java
+        Route.java
+        Ticket.java
+        Transaction.java
       repository/             # Spring Data repositories
+        RouteAnalyticsRepository.java
       config/                 # data initialization
       event/                  # Kafka event models and producers
+        TicketEvent.java
+        TicketEventProducer.java
+        TransactionEvent.java
+        TransactionEventProducer.java
     src/main/resources/
       application.yml
       application-h2.yml
   flink-jobs/                 # Apache Flink streaming jobs
     src/main/java/com/railgraph/flink/
       TicketEvent.java
-      TicketStreamJob.java
+      AdvancedTicketAnalyticsJob.java
+      TopRoutesAnalyticsJob.java
+      model/
+        RouteAnalytics.java
+      aggregator/
+        RouteWindowAggregate.java
+  monitoring/                 # Monitoring and observability
+    prometheus/
+      prometheus.yml
+      alerts/
+        railgraph-alerts.yml
+    grafana/
+      dashboards/
+        railgraph-overview.json
+        railgraph-scaling.json
+      provisioning/
+    alertmanager/
+      alertmanager.yml
+    flink/
+      flink-conf.yaml
   Dockerfile
   docker-compose.yaml
   build-and-run.sh           # Quick start script

@@ -21,8 +21,10 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Pre-create topics with 3 partitions for better throughput and parallel processing
+      KAFKA_CREATE_TOPICS: "ticket-events:3:1,transaction-events:3:1"
       socket.send.buffer.bytes: 1048576
-      num.network.threads: 2
+      num.network.threads: 3
     ports:
       - "29092:29092"
     depends_on:
@@ -66,10 +68,12 @@ services:
     command: jobmanager
     volumes:
       - ./flink-jobs/target/flink-jobs-1.0-SNAPSHOT-jar-with-dependencies.jar:/opt/flink/usrlib/flink-jobs.jar
+      - ./monitoring/flink/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
     environment:
       - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
     ports:
       - "8081:8081"
+      - "9249:9249"
     networks:
       - railgraph-network
     depends_on:
@@ -80,12 +84,16 @@ services:
     image: flink:1.17.1-scala_2.12
     container_name: railgraph-flink-taskmanager
     command: taskmanager
+    volumes:
+      - ./monitoring/flink/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
     environment:
       - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
       - taskmanager.network.memory.max=1024mb
       - taskmanager.network.request-backoff.max=5000
-      - taskmanager.memory.process.size=2048m
-      - taskmanager.numberOfTaskSlots=2
+      - taskmanager.memory.process.size=2560m
+      - taskmanager.numberOfTaskSlots=4
+    ports:
+      - "9250:9249"
     depends_on:
       - flink-jobmanager
     networks:
@@ -127,8 +135,78 @@ services:
       - railgraph-network
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: railgraph-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: railgraph-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: railgraph-kafka-exporter
+    command:
+      - '--kafka.server=kafka:9092'
+    ports:
+      - "9308:9308"
+    depends_on:
+      - kafka
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: railgraph-alertmanager
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    ports:
+      - "9093:9093"
+    networks:
+      - railgraph-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
 
 networks:
   railgraph-network:

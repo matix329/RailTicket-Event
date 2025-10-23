@@ -1,5 +1,6 @@
 package com.railgraph.event;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class TicketEvent {
@@ -8,6 +9,7 @@ public class TicketEvent {
     private String discountType;
     private String userId;
     private LocalDateTime timestamp;
+    private BigDecimal finalPrice;  // Price after discount applied
 
     public TicketEvent() {}
 
@@ -17,6 +19,15 @@ public class TicketEvent {
         this.discountType = discountType;
         this.userId = userId;
         this.timestamp = timestamp;
+    }
+
+    public TicketEvent(Long routeId, int quantity, String discountType, String userId, LocalDateTime timestamp, BigDecimal finalPrice) {
+        this.routeId = routeId;
+        this.quantity = quantity;
+        this.discountType = discountType;
+        this.userId = userId;
+        this.timestamp = timestamp;
+        this.finalPrice = finalPrice;
     }
 
     public Long getRouteId() {
@@ -57,5 +68,13 @@ public class TicketEvent {
 
     public void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public BigDecimal getFinalPrice() {
+        return finalPrice;
+    }
+
+    public void setFinalPrice(BigDecimal finalPrice) {
+        this.finalPrice = finalPrice;
     }
 }

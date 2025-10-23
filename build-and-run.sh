@@ -21,5 +21,3 @@ echo "System is ready!"
 echo "Backend API: http://localhost:8085"
 echo "Flink Dashboard: http://localhost:8081"
 echo "Kafka: localhost:29092"
-
-

@@ -70,7 +70,8 @@ public class TicketService {
                 ticketInput.getQuantity(),
                 ticketInput.getDiscountType().name(),
                 userId,
-                LocalDateTime.now()
+                LocalDateTime.now(),
+                finalPrice
             )
         );
 

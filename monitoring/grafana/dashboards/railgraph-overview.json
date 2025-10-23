@@ -1,0 +1,185 @@
+{
+  "dashboard": {
+    "title": "RailGraph - System Overview",
+    "uid": "railgraph-overview",
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Kafka - Messages Produced (Ticket Events)",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(kafka_topic_partition_current_offset{topic=\"ticket-events\"}[5m])",
+            "legendFormat": "Partition {{partition}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Messages/sec"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Kafka - Consumer Lag",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "kafka_consumergroup_lag{topic=\"ticket-events\"}",
+            "legendFormat": "Group: {{consumergroup}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Lag"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Flink - Records Processed",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(flink_taskmanager_job_task_operator_numRecordsIn[5m])",
+            "legendFormat": "{{operator_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Records/sec"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Flink - Backpressure",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "flink_taskmanager_job_task_backPressuredTimeMsPerSecond",
+            "legendFormat": "Task {{task_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ms",
+            "label": "Backpressure Time"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Spring Boot - HTTP Requests Rate",
+        "type": "graph",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{application=\"railgraph-backend\"}[5m])",
+            "legendFormat": "{{uri}} - {{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Requests/sec"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Spring Boot - JVM Memory Usage",
+        "type": "graph",
+        "gridPos": {
+          "x": 12,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{application=\"railgraph-backend\", area=\"heap\"}",
+            "legendFormat": "Heap Used",
+            "refId": "A"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{application=\"railgraph-backend\", area=\"heap\"}",
+            "legendFormat": "Heap Max",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "bytes",
+            "label": "Memory"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Top Routes by Tickets Sold (Last Hour)",
+        "type": "table",
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 24,
+          "h": 8
+        },
+        "targets": [
+          {
+            "expr": "topk(5, sum by (route_id) (increase(tickets_sold_total[1h])))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}
